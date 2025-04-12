@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "finance-tracker-454119",
+  "private_key_id": "920249aff0c39a0c4ef08aba54e0e935d86e2efc",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCXWySQ/1M6p7W3\nRf/T+ztQ7ODY2S8FgZu6iec46fVxHvurpxe5nSY9zFEtiv4UgT6Fd4elNJTqSaf+\n5XVfy44/MnBfgnMkrqQU1cNFNqiQY3YPjK8Y6av9ogN076QJu6fXPYkX+5lh3Ts9\nVQ+E/5R0hKnc6p96S1Uozscft5Iv05aZhUujFgz6Bv4mChfh/QjKe8Z40VnwDz7I\nJTFmc1tMBqUUG7SXQLnOu5bTA1Bgb97o/b6EPQxr45d33YTX5KByZAdmu0DMa2nb\nBv/rXAyPBsJzx3r0OlWXMKmt8CEsT2hEWJ2sUeGCxHQCwkRJWfa4z+YKqleMhtUe\nQaQ69fWNAgMBAAECggEACu2H85cXr4O11URuzuOT+gkMR+PQZw2fTIXR5bRQpgj2\nY0OWbS6ZOPuEPe1L4HefZ7wEVWt5N/w27qqrAY5dGBeAcQjmXtbkHmP7rAbg/0HL\nH57I8pvGcPLOXJZDyfccTGhTOmHORnhWY1x9mRzp30rHx91Bw+7l+GMLkfDrU1wP\nS45Ssxsw9664H+aeUfZ6Ui/N+eUXX7Auw/7vgOEi97/a1PcGUn+BOXmBHIN+/aPH\nAw7T2ter2NjirCKP8+JwSp8VyJf2aubMI2n9WLIq7Y75Yc7OGyrWzmt72p166UMd\nc5thpKm1MyB+73bCYyyPHbPU+uze0+PJHRR+gIZT4QKBgQDPvtEDtvjceqWkXu9X\nfT4pEA7BHGXwSTF+h6f2geXdko2JCgVlRa55WMLF7L2VHT0Gc1HZwOkhZhFIXYqB\nTiPP32idV2aErHG+/mj6DOc+CIlvlbXitV3Yvaiz52FuOFEm9IuLKmnxOP8ColEu\nRNHPysOxdUQzZHeK4m8YAeMOrQKBgQC6gz2wD2UTBLusAdjGZP//hKQdmgnurM0J\nKLa2z7BGGYPKVzfZ+Ab+QP48MpCVC5EOmST3Z9o3r2TACnkY6VhHa7lK4xox+zNu\n7oSwVhOM9EvLxYJxoZ1yMOeVytA+L8L5YkJTfuzGU7cu98v5EBljanyKIgiEOoeW\nQU7biU2+YQKBgQDDT1RWN7l0H2KHTDGcgUTlehFFAJvd8hI0MPl6SdmAHH4wLlmw\nQnir4QUM62u5OwnafKShIjqLidgJvteuhXYpwpIqCrd5WF5//9NV8recnI4JeCjO\nAVE/qd9nc8snwo6ZHyPqLG/5t2oYYd4Mr+rJfonI1sTNxFCXJBbp7Sw46QKBgQCb\nuEl/vkq4J0J9aQlREzB9aIQRRvO190Y0uG5ckWhuDo1vGYTDEobcLu1U2y7FkeOp\nWYl4mpeh2Gl4wQW8G86dyr3oXVYYls+pdbEI/MTT8X97AUtYjgPDPDuOX8eftAbI\nahZQWe9b4rdVmoQNTTi1PUn/lkygAbIEbEBnoOps4QKBgFA/Z1WjOFotKxl+kL3G\nJaVj/AhgvhMazFvEgGzHWxArVrKTE+0gvIxlurBFaMLOpUNriTfxwF77uzCTbxf/\nXwZq0jv7ID9UdUwG5Lj4L/bpNt3hnDxwEatOZ6EfVbXDPmHRDTRWeD8SMuJ+HHcW\nOLaFYfObbdzesGqChfesJFFm\n-----END PRIVATE KEY-----\n",
+  "client_email": "finance-tracker@finance-tracker-454119.iam.gserviceaccount.com",
+  "client_id": "116725243641105732963",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/finance-tracker%40finance-tracker-454119.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
