@@ -34,7 +34,7 @@
     ".next/types/**/*.ts",
     "app/layout.ts",
     "app/page.ts",
-    "lib/google-sheets.ts",
+    "lib/googleSheetServices.ts",
     "next-env.d.ts",
     "tailwind.config.ts",
     ".next/types/**/*.ts"
