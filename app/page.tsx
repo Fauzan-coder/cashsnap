@@ -52,17 +52,45 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [originalOpeningBalance, setOriginalOpeningBalance] = useState<number>(0);
+  // State for missed entry notification
+  const [missedDates, setMissedDates] = useState<string[]>([]);
+  const [showMissedDateReminder, setShowMissedDateReminder] = useState<boolean>(false);
+  const [remindLaterDismissed, setRemindLaterDismissed] = useState<boolean>(false);
+  // State for expense suggestions
+  const [expenseSuggestions, setExpenseSuggestions] = useState<string[]>([]);
+  // State for manual date entry
+  const [manualEntryDate, setManualEntryDate] = useState<string>('');
+  const [showManualDateEntry, setShowManualDateEntry] = useState<boolean>(false);
+  // New state variables for date modal and filtering
+  const [showDateModal, setShowDateModal] = useState<boolean>(false);
+  const [modalMessage, setModalMessage] = useState<string>('');
+  const [dateFilter, setDateFilter] = useState<string>('');
+  const [filteredDates, setFilteredDates] = useState<string[]>([]);
 
   // Fetch previous data and available dates when component mounts
   useEffect(() => {
     fetchPreviousData();
     fetchAvailableDates();
+    checkForMissedDates();
+    fetchExpenseSuggestions();
   }, []);
 
   // Calculate closing balance whenever relevant data changes
   useEffect(() => {
     calculateClosingBalance();
   }, [salesData, expenses, advanceSalary, openingBalance]);
+
+  // Filter dates based on user input
+  useEffect(() => {
+    if (dateFilter) {
+      const filtered = availableDates.filter(date => 
+        date.includes(dateFilter)
+      );
+      setFilteredDates(filtered);
+    } else {
+      setFilteredDates(availableDates.slice(0, 10)); // Show only recent 10 dates when no filter
+    }
+  }, [dateFilter, availableDates]);
 
   // Fetch previous day's data
   const fetchPreviousData = async () => {
@@ -83,22 +111,102 @@ export default function Home() {
     }
   };
 
+  const checkForMissedDates = async () => {
+    try {
+      const response = await fetch('/api/missed-dates');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.missedDates && data.missedDates.length > 0) {
+          setMissedDates(data.missedDates);
+          setShowMissedDateReminder(!remindLaterDismissed);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to check for missed dates:", error);
+    }
+  };
+
+  // Fetch expense suggestions
+  const fetchExpenseSuggestions = async () => {
+    try {
+      const response = await fetch('/api/expense-suggestions');
+      if (response.ok) {
+        const data = await response.json();
+        setExpenseSuggestions(data.suggestions || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch expense suggestions:", error);
+    }
+  };
+
+  // Toggle manual date entry mode
+  const toggleManualDateEntry = () => {
+    setShowManualDateEntry(!showManualDateEntry);
+    setManualEntryDate(new Date().toISOString().split('T')[0]);
+  };
+
+  // Handle manual date change
+  const handleManualDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setManualEntryDate(e.target.value);
+  };
+
+  // Handle date filter change
+  const handleDateFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setDateFilter(e.target.value);
+  };
+
   // Fetch available dates for editing
   const fetchAvailableDates = async () => {
     try {
-      const response = await fetch('/api/available-dates');
+      const response = await fetch('/api/available-dates', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Add cache control to prevent caching issues
+        cache: 'no-store'
+      });
       
       if (!response.ok) {
-        throw new Error('Failed to fetch available dates');
+        throw new Error(`Server responded with status: ${response.status}`);
       }
       
       const data = await response.json();
-      // Remove duplicates using Set
-      const uniqueDates = [...new Set((data.dates || []) as string[])];
-      setAvailableDates(uniqueDates);
+      // Dates are already sorted by newest first in the API
+      const dates = data.dates || [];
+      setAvailableDates(dates);
+      // Initialize filteredDates with the 10 most recent dates
+      setFilteredDates(dates.slice(0, 10));
     } catch (error) {
       console.error("Failed to fetch available dates:", error);
       setAvailableDates([]);
+      setFilteredDates([]);
+      // Consider adding user notification of the error
+      // alert("Failed to load previous entries. Please refresh the page or try again later.");
+    }
+  };
+
+  // Check if entry already exists for this date
+  const checkForExistingEntry = async () => {
+    const entryDate = showManualDateEntry ? manualEntryDate : new Date().toISOString().split('T')[0];
+    
+    try {
+      const response = await fetch(`/api/date-exists?date=${entryDate}`);
+      if (!response.ok) {
+        throw new Error('Failed to check date');
+      }
+      
+      const data = await response.json();
+      
+      if (data.exists && !isEditMode) {
+        setModalMessage(`Data already exists for ${entryDate}. Please use the Edit feature instead.`);
+        setShowDateModal(true);
+        return true; // Entry exists
+      }
+      return false; // No entry exists
+    } catch (error) {
+      console.error("Error checking for existing entry:", error);
+      return false; // Proceed with caution if check fails
     }
   };
 
@@ -179,7 +287,7 @@ export default function Home() {
     
     const totalAdvanceSalary = parseFloat(advanceSalary.amount || '0');
     
-    const closing = openingBalance + totalSales - totalExpenses - totalAdvanceSalary;
+    const closing = totalSales - totalExpenses - totalAdvanceSalary;
     setClosingBalance(closing);
   };
 
@@ -236,9 +344,27 @@ export default function Home() {
     setShowEditSection(!showEditSection);
   };
 
+  // Close modal function
+  const closeModal = () => {
+    setShowDateModal(false);
+  };
+
+  // Switch to edit mode for the current date
+  const switchToEditMode = () => {
+    const dateToEdit = showManualDateEntry ? manualEntryDate : new Date().toISOString().split('T')[0];
+    setShowDateModal(false);
+    setShowEditSection(true);
+    fetchDataForDate(dateToEdit);
+  };
+
   // Submit data to Google Sheets
   const handleSubmit = async () => {
     try {
+      // Check if entry already exists
+      if (await checkForExistingEntry()) {
+        return; // Stop submission if entry exists
+      }
+      
       // Calculate totals
       const totalSales = 
         parseFloat(salesData.cash || '0') + 
@@ -258,7 +384,7 @@ export default function Home() {
       
       // Prepare data for submission
       const submissionData = {
-        date: isEditMode ? selectedDate : new Date().toISOString().split('T')[0],
+        date: showManualDateEntry ? manualEntryDate : (isEditMode ? selectedDate : new Date().toISOString().split('T')[0]),        
         cash: salesData.cash,
         upi: salesData.upi,
         card: salesData.card,
@@ -309,23 +435,24 @@ export default function Home() {
     setSalesData({ cash: '', upi: '', card: '' });
     setExpenses([{ description: '', amount: '', id: '1' }]);
     setAdvanceSalary({ employee: '', amount: '', remarks: '' });
-    // Don't reset balances as they should persist
+    setClosingBalance(0); // Reset closing balance to 0
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-gray-200 via-gray-100 to-white">
       <Head>
         <title>CashSnap</title>
         <meta name="description" content="Track daily sales, expenses and advance salary" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
-
-      <header className="bg-gradient-to-r from-gray-100 to-gray-200 shadow-lg py-6 border-b border-gray-300">
-        <div className="container mx-auto px-6 flex justify-between items-center">
-          <h1 className="text-3xl font-bold">
+  
+      <header className="bg-gradient-to-r from-gray-300 to-gray-100 shadow-md py-4 sm:py-6 border-b border-gray-300">
+        <div className="container mx-auto px-4 sm:px-6 flex justify-between items-center">
+          <h1 className="text-2xl sm:text-3xl font-bold">
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-gray-800 via-gray-600 to-black">Cash</span>
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-gray-700 to-gray-900">Snap</span>
           </h1>
-          <div className="flex space-x-6">
+          <div className="flex space-x-4 sm:space-x-6">
             <Link href="/dashboard" className="relative group">
               <span className="text-gray-700 hover:text-gray-900 font-medium transition-all duration-300 ease-in-out">
                 Dashboard
@@ -341,41 +468,56 @@ export default function Home() {
           </div>
         </div>
       </header>
-
-      <main className="container mx-auto py-8 px-4">
-        <div className="mb-6 flex justify-between items-center">
-          <h2 className="text-2xl font-semibold text-gray-800">
-            {isEditMode ? `Editing: ${selectedDate}` : "New Entry"}
-          </h2>
-          <button 
-            onClick={toggleEditSection}
-            className="bg-gray-800 hover:bg-black text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
-          >
-            {showEditSection ? "Hide Edit Options" : "Edit Previous Entry"}
-          </button>
-        </div>
-        
+  
+      <main className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">    
         {/* Edit Mode Selection - Only visible when toggled */}
         {showEditSection && (
-          <div className="bg-white p-6 rounded-lg shadow-md mb-8 border-l-4 border-gray-800">
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Select a Date to Edit</h3>
-            <div className="flex flex-col md:flex-row items-center gap-4">
-              <div className="w-full md:w-2/3">
-                <select 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  value={selectedDate}
-                  onChange={handleDateChange}
-                >
-                  <option value="">-- Select Date --</option>
-                  {availableDates.map(date => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 border-l-4 border-gray-800 transition-all duration-300">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-800">Select a Date to Edit</h3>
+            <div className="flex flex-col gap-3 sm:gap-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter dates (YYYY-MM-DD)"
+                  value={dateFilter}
+                  onChange={handleDateFilterChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
+                />
+                {dateFilter && (
+                  <button
+                    onClick={() => setDateFilter('')}
+                    className="absolute right-3 top-2 text-gray-400 hover:text-gray-600"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
               </div>
+              
+              <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-md">
+                {filteredDates.length > 0 ? (
+                  <ul className="divide-y divide-gray-200">
+                    {filteredDates.map(date => (
+                      <li key={date} className="p-2 hover:bg-gray-50">
+                        <button
+                          onClick={() => fetchDataForDate(date)}
+                          className="w-full text-left px-2 py-1 text-gray-700 hover:text-gray-900"
+                        >
+                          {date}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="p-4 text-gray-500 text-center">No matching dates found</p>
+                )}
+              </div>
+              
               {isEditMode && (
                 <button 
                   onClick={cancelEdit}
-                  className="w-full md:w-1/3 bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
+                  className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200"
                 >
                   Cancel Edit
                 </button>
@@ -383,30 +525,133 @@ export default function Home() {
             </div>
           </div>
         )}
+  
+        {/* Date Exists Modal */}
+        {showDateModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full mx-4 sm:mx-auto">
+              <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800">Date Already Has Data</h3>
+              <p className="text-gray-600 mb-4 sm:mb-6">{modalMessage}</p>
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={closeModal}
+                  className="px-3 sm:px-4 py-2 bg-gray-200 rounded-md text-gray-800 hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={switchToEditMode}
+                  className="px-3 sm:px-4 py-2 bg-gray-800 rounded-md text-white hover:bg-black transition-colors"
+                >
+                  Edit This Date
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+  
+        {/* Missed Date Reminder */}
+        {showMissedDateReminder && missedDates.length > 0 && (
+          <div className="bg-gradient-to-r from-yellow-50 to-white border-l-4 border-yellow-400 p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-semibold text-yellow-800 mb-2">Missing Entry Reminder</h3>
+                <p className="text-yellow-700">
+                  You forgot to enter data for: <strong>{missedDates.join(', ')}</strong>
+                </p>
+                <p className="text-sm text-yellow-600 mt-2">
+                  Would you like to enter this data now?
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <button 
+                  onClick={() => {
+                    setShowMissedDateReminder(false);
+                    toggleManualDateEntry();
+                    setManualEntryDate(missedDates[0]);
+                  }}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-3 sm:px-4 rounded-lg transition-colors duration-200"
+                >
+                  Enter Now
+                </button>
+                <button 
+                  onClick={() => setShowMissedDateReminder(false)}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-3 sm:px-4 rounded-lg transition-colors duration-200"
+                >
+                  I Know
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowMissedDateReminder(false);
+                    setRemindLaterDismissed(true);
+                  }}
+                  className="bg-transparent hover:bg-gray-100 text-gray-600 font-medium py-2 px-3 sm:px-4 rounded-lg transition-colors duration-200"
+                >
+                  Remind Later
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+  
+        {/* Manual Date Entry */}
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+          <h2 className="text-xl sm:text-2xl font-semibold text-gray-800">
+            {isEditMode ? `Editing: ${selectedDate}` : 
+            (showManualDateEntry ? `New Entry for Custom Date` : "New Entry")}
+          </h2>
+          <div className="flex flex-wrap gap-2 sm:gap-3">
+            <button 
+              onClick={toggleManualDateEntry}
+              className="flex-grow sm:flex-grow-0 bg-gradient-to-r from-gray-800 to-gray-700 hover:from-black hover:to-gray-800 text-white font-medium py-2 px-3 sm:px-4 rounded-lg transition-all duration-200 shadow-sm"
+            >
+              {showManualDateEntry ? "Use Today's Date" : "Enter Different Date"}
+            </button>
+            <button 
+              onClick={toggleEditSection}
+              className="flex-grow sm:flex-grow-0 bg-gradient-to-r from-gray-700 to-gray-600 hover:from-gray-800 hover:to-gray-700 text-white font-medium py-2 px-3 sm:px-4 rounded-lg transition-all duration-200 shadow-sm"
+            >
+              {showEditSection ? "Hide Edit Options" : "Edit Previous Entry"}
+            </button>
+          </div>
+        </div>
+  
+        {/* Custom Date Selector */}
+        {showManualDateEntry && (
+          <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 border-l-4 border-blue-500 transition-all duration-300">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-gray-800">Select Date for Entry</h3>
+            <input
+              type="date"
+              value={manualEntryDate}
+              onChange={handleManualDateChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+            />
+          </div>
+        )}
         
         {/* Balance Summary */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Opening Balance</h3>
-              <p className="text-3xl font-bold text-gray-800">₹{openingBalance.toFixed(2)}</p>
+        <div className="bg-gradient-to-r from-white to-gray-50 p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+            <div className="p-4 bg-gradient-to-r from-gray-100 to-gray-50 rounded-lg shadow-sm border border-gray-200">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-2">Opening Balance</h3>
+              <p className="text-2xl sm:text-3xl font-bold text-gray-800">₹{openingBalance.toFixed(2)}</p>
             </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Closing Balance</h3>
-              <p className="text-3xl font-bold text-gray-800">₹{closingBalance.toFixed(2)}</p>
-              <p className="text-sm text-gray-500 mt-1">
-                (Opening + Sales - Expenses - Advance)
+            <div className="p-4 bg-gradient-to-r from-gray-100 to-gray-50 rounded-lg shadow-sm border border-gray-200">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-2">Closing Balance</h3>
+              <p className="text-2xl sm:text-3xl font-bold text-gray-800">₹{closingBalance.toFixed(2)}</p>
+              <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                (Sales - Expenses - Advance)
               </p>
             </div>
           </div>
         </div>
         
         {/* Sales Section */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <h3 className="text-xl font-semibold mb-6 text-gray-800 border-b pb-2">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+          <h3 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-gray-800 border-b pb-2">
             {isEditMode ? `Sales for ${selectedDate}` : "Today's Sales"}
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Cash</label>
               <div className="relative">
@@ -416,7 +661,7 @@ export default function Home() {
                   name="cash"
                   value={salesData.cash}
                   onChange={handleSalesChange}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                   placeholder="Enter cash amount"
                 />
               </div>
@@ -430,7 +675,7 @@ export default function Home() {
                   name="upi"
                   value={salesData.upi}
                   onChange={handleSalesChange}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                   placeholder="Enter UPI amount"
                 />
               </div>
@@ -444,18 +689,18 @@ export default function Home() {
                   name="card"
                   value={salesData.card}
                   onChange={handleSalesChange}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                   placeholder="Enter card amount"
                 />
               </div>
             </div>
           </div>
         </div>
-
+  
         {/* Expenses Section */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <div className="flex justify-between items-center mb-6 border-b pb-2">
-            <h3 className="text-xl font-semibold text-gray-800">Expenses</h3>
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+          <div className="flex justify-between items-center mb-4 sm:mb-6 border-b pb-2">
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-800">Expenses</h3>
             <button 
               onClick={addExpenseRow}
               className="flex items-center text-gray-700 hover:text-gray-900 font-medium py-1 px-3 rounded-md border border-gray-300 hover:bg-gray-50 transition-colors duration-200"
@@ -464,26 +709,32 @@ export default function Home() {
             </button>
           </div>
           
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {expenses.map((expense) => (
-              <div key={expense.id} className="flex flex-col md:flex-row gap-3">
+              <div key={expense.id} className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-grow">
                   <input
                     type="text"
+                    list="expense-suggestions"
                     value={expense.description}
                     onChange={(e) => handleExpenseChange(expense.id, 'description', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                     placeholder="Expense description"
                   />
+                  <datalist id="expense-suggestions">
+                    {expenseSuggestions.map((suggestion, index) => (
+                      <option key={index} value={suggestion} />
+                    ))}
+                  </datalist>
                 </div>
-                <div className="md:w-1/3">
+                <div className="sm:w-1/3">
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">₹</span>
                     <input
                       type="number"
                       value={expense.amount}
                       onChange={(e) => handleExpenseChange(expense.id, 'amount', e.target.value)}
-                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                      className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                       placeholder="Amount"
                     />
                   </div>
@@ -491,7 +742,7 @@ export default function Home() {
                 {expenses.length > 1 && (
                   <button 
                     onClick={() => removeExpenseRow(expense.id)}
-                    className="md:w-auto text-gray-500 hover:text-red-600 transition-colors duration-200"
+                    className="self-center text-gray-500 hover:text-red-600 transition-colors duration-200"
                     title="Remove expense"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -503,11 +754,11 @@ export default function Home() {
             ))}
           </div>
         </div>
-
+  
         {/* Advance Salary Section */}
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <h3 className="text-xl font-semibold mb-6 text-gray-800 border-b pb-2">Advance Salary</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+          <h3 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-gray-800 border-b pb-2">Advance Salary</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
               <input
@@ -515,7 +766,7 @@ export default function Home() {
                 name="employee"
                 value={advanceSalary.employee}
                 onChange={handleAdvanceSalaryChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                 placeholder="Employee name"
               />
             </div>
@@ -528,7 +779,7 @@ export default function Home() {
                   name="amount"
                   value={advanceSalary.amount}
                   onChange={handleAdvanceSalaryChange}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                   placeholder="Advance amount"
                 />
               </div>
@@ -540,25 +791,25 @@ export default function Home() {
                 name="remarks"
                 value={advanceSalary.remarks}
                 onChange={handleAdvanceSalaryChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 transition-all duration-200"
                 placeholder="Additional remarks"
               />
             </div>
           </div>
         </div>
-
+  
         {/* Submit Button */}
-        <div className="flex justify-center">
+        <div className="flex justify-center mb-6">
           <button 
             onClick={handleSubmit}
-            className="bg-gray-800 hover:bg-black text-white font-medium py-3 px-8 rounded-lg focus:outline-none focus:ring-4 focus:ring-gray-400 transition-colors duration-200"
+            className="bg-gradient-to-r from-gray-800 to-gray-700 hover:from-black hover:to-gray-800 text-white font-medium py-2 sm:py-3 px-6 sm:px-8 rounded-lg focus:outline-none focus:ring-4 focus:ring-gray-400 transition-all duration-200 shadow-md"
           >
             {isEditMode ? `Update Data for ${selectedDate}` : "Submit Data"}
           </button>
         </div>
       </main>
-
-      <footer className="bg-white border-t border-gray-200 py-4 mt-12">
+  
+      <footer className="bg-gradient-to-r from-gray-100 to-white border-t border-gray-200 py-4 mt-6 sm:mt-12">
         <div className="container mx-auto px-4 text-center text-gray-600 text-sm">
           © {new Date().getFullYear()} CashSnap
         </div>

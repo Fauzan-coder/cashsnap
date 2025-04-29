@@ -1,15 +1,17 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, BarChart, PieChart, Pie, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Line, Bar, Cell, ResponsiveContainer } from 'recharts';
 import { Home, IndianRupee, ArrowDown, Users } from 'lucide-react';
 import ReportGenerator from '../components/ReportGenerator';
 import Link from 'next/link';
+import SearchableDropdown from '../components/SearchableDropdown';
 
 // TypeScript interfaces
 interface SalesDataPoint {
   time?: string;
   day?: string;
   month?: string;
+  date?: string;
   sales: number;
 }
 
@@ -88,157 +90,236 @@ export default function Dashboard() {
     dailySummary: []
   });
 
-  // Fetch available dates and generate weeks/months
-  useEffect(() => {
-    const fetchAvailableDates = async () => {
-      try {
-        const response = await fetch('/api/available-dates');
-        if (!response.ok) throw new Error('Failed to fetch available dates');
-        
-        const data = await response.json();
-        setAvailableDates(data.dates || []);
-        
-        if (data.dates?.length > 0 && !selectedDate) {
-          setSelectedDate(data.dates[data.dates.length - 1]);
-        }
-    
-        if (data.dates?.length > 0) {
-          const weeks = generateWeekOptions(data.dates);
-          setAvailableWeeks(weeks);
-          if (weeks.length > 0) setSelectedWeek(weeks[weeks.length - 1]);
-    
-          const months = generateMonthOptions(data.dates);
-          setAvailableMonths(months);
-          if (months.length > 0) setSelectedMonth(months[months.length - 1]);
-        }
-      } catch (error) {
-        console.error('Error fetching available dates:', error);
-        setAvailableDates([]);
-        setAvailableWeeks([]);
-        setAvailableMonths([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchAvailableDates();
-  }, []);
+  // Format date to YYYY-MM-DD
+  const formatDate = (date: Date): string => {
+    return date.toISOString().split('T')[0];
+  };
+
+  // Parse date string to Date object
+  const parseDate = (dateStr: string): Date => {
+    return new Date(dateStr);
+  };
 
   // Generate week options from available dates
-  const generateWeekOptions = (dates: string[]): string[] => {
+  const generateWeekOptions = useCallback((dates: string[]): string[] => {
     const weekMap = new Map<string, string>();
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December'];
+                      'July', 'August', 'September', 'October', 'November', 'December'];
     
     dates.forEach(dateStr => {
-      const date = new Date(dateStr);
+      const date = parseDate(dateStr);
       const year = date.getFullYear();
-      const month = date.getMonth();
-      const firstDayOfMonth = new Date(year, month, 1);
-      const dayOfMonth = date.getDate();
-      const weekOfMonth = Math.ceil((dayOfMonth + firstDayOfMonth.getDay()) / 7);
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
       
-      const weekKey = `Week ${weekOfMonth} of ${monthNames[month]} ${year}`;
+      // Calculate start of week (Sunday)
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - dayOfWeek);
+      
+      // Calculate end of week (Saturday)
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      
+      // Format: "21-27 April 2025"
+      const weekKey = `${weekStart.getDate()}-${weekEnd.getDate()} ${monthNames[weekStart.getMonth()]} ${year}`;
+      
       weekMap.set(weekKey, weekKey);
     });
     
-    return Array.from(weekMap.keys()).sort();
-  };
+    return Array.from(weekMap.keys()).sort((a, b) => {
+      const dateA = new Date(a.split(' ').slice(1).join(' '));
+      const dateB = new Date(b.split(' ').slice(1).join(' '));
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, []);
 
   // Generate month options from available dates
-  const generateMonthOptions = (dates: string[]): string[] => {
+  const generateMonthOptions = useCallback((dates: string[]): string[] => {
     const monthMap = new Map<string, string>();
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
                        'July', 'August', 'September', 'October', 'November', 'December'];
     
     dates.forEach(dateStr => {
-      const date = new Date(dateStr);
+      const date = parseDate(dateStr);
       const year = date.getFullYear();
       const month = date.getMonth();
       const monthKey = `${monthNames[month]} ${year}`;
       monthMap.set(monthKey, monthKey);
     });
     
-    return Array.from(monthMap.keys()).sort();
-  };
+    return Array.from(monthMap.keys()).sort((a, b) => {
+      const dateA = new Date(a);
+      const dateB = new Date(b);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, []);
 
-  // Fetch data when period or filters change
+  // Fetch available dates
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      setAnalytics(prev => ({ ...prev, loading: true }));
-      const cacheKey = `${selectedPeriod}-${selectedDate || selectedWeek || selectedMonth}`;
-      
-      if (dataCache[cacheKey]) {
-        setAnalytics({ loading: false, ...dataCache[cacheKey] });
-        return;
-      }
-      
+    const fetchAvailableDates = async () => {
       try {
-        let apiUrl = '/api/daily-data';
-        let dateFilter = '';
+        setIsLoading(true);
+        const response = await fetch('/api/available-dates');
+        if (!response.ok) throw new Error('Failed to fetch available dates');
         
-        if (selectedPeriod === 'daily' && selectedDate) {
-          dateFilter = `?date=${selectedDate}`;
-        } else if (selectedPeriod === 'weekly' && selectedWeek) {
-          const match = selectedWeek.match(/Week (\d+) of (\w+) (\d+)/);
-          if (match) {
-            const [_, weekNum, monthName, year] = match;
-            dateFilter = `?week=${weekNum}&month=${monthName}&year=${year}`;
-          }
-        } else if (selectedPeriod === 'monthly' && selectedMonth) {
-          const match = selectedMonth.match(/(\w+) (\d+)/);
-          if (match) {
-            const [_, monthName, year] = match;
-            dateFilter = `?month=${monthName}&year=${year}`;
-          }
+        const data = await response.json();
+        const sortedDates = (data.dates || []).sort();
+        setAvailableDates(sortedDates);
+        
+        if (sortedDates.length > 0) {
+          setSelectedDate(sortedDates[sortedDates.length - 1]);
+          
+          const weeks = generateWeekOptions(sortedDates);
+          setAvailableWeeks(weeks);
+          if (weeks.length > 0) setSelectedWeek(weeks[weeks.length - 1]);
+    
+          const months = generateMonthOptions(sortedDates);
+          setAvailableMonths(months);
+          if (months.length > 0) setSelectedMonth(months[months.length - 1]);
         }
-        
-        const response = await fetch(apiUrl + dateFilter);
-        if (!response.ok) throw new Error('Failed to fetch data');
-
-        const dailyData: DailyData = await response.json();
-        let dateRange: string[] = [];
-
-        if (selectedPeriod === 'daily') {
-          dateRange = [selectedDate];
-        } else if (selectedPeriod === 'weekly') {
-          const match = selectedWeek.match(/Week (\d+) of (\w+) (\d+)/);
-          if (match) {
-            const [_, weekNum, monthName, year] = match;
-            dateRange = getDatesForWeek(parseInt(weekNum), monthName, parseInt(year), availableDates);
-          }
-        } else if (selectedPeriod === 'monthly') {
-          const match = selectedMonth.match(/(\w+) (\d+)/);
-          if (match) {
-            const [_, monthName, year] = match;
-            dateRange = getDatesForMonth(monthName, parseInt(year), availableDates);
-          }
-        }
-
-        const allData = await Promise.all(
-          dateRange.map(date => 
-            fetch(`/api/daily-data?date=${date}`)
-              .then(res => res.ok ? res.json() : null)
-              .catch(() => null)
-          )
-        ).then(results => results.filter(Boolean));
-
-        const processedData = processDataForDashboard(dailyData, allData, selectedPeriod);
-        
-        setDataCache(prev => ({ ...prev, [cacheKey]: processedData }));
-        setAnalytics({
-          loading: false,
-          salesData: processedData.salesData || [],
-          paymentMethodDistribution: processedData.paymentMethodDistribution || [],
-          expenseCategories: processedData.expenseCategories || [],
-          employeeAdvances: processedData.employeeAdvances || [],
-          dailySummary: processedData.dailySummary || []
-        });
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        setAnalytics(prev => ({ ...prev, loading: false }));
+        console.error('Error fetching available dates:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
+    fetchAvailableDates();
+  }, [generateWeekOptions, generateMonthOptions]);
+
+  // Get dates for selected week
+  const getDatesForWeek = useCallback((weekRange: string): string[] => {
+    // Parse format like "21-27 April 2025"
+    const parts = weekRange.split(' ');
+    const dayRange = parts[0].split('-');
+    const month = parts[1];
+    const year = parseInt(parts[2]);
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthIndex = monthNames.indexOf(month);
+    
+    if (monthIndex === -1) return [];
+    
+    const startDate = new Date(year, monthIndex, parseInt(dayRange[0]));
+    const endDate = new Date(year, monthIndex, parseInt(dayRange[1]));
+    
+    return availableDates.filter(dateStr => {
+      const date = parseDate(dateStr);
+      return date >= startDate && date <= endDate;
+    });
+  }, [availableDates]);
+
+  // Get dates for selected month
+  const getDatesForMonth = useCallback((monthYear: string): string[] => {
+    if (!monthYear) return [];
+    
+    const parts = monthYear.split(' ');
+    if (parts.length !== 2) return [];
+    
+    const month = parts[0];
+    const year = parseInt(parts[1]);
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthIndex = monthNames.indexOf(month);
+    
+    if (monthIndex === -1 || isNaN(year)) return [];
+    
+    // Add explicit logging
+    console.log(`Filtering for month: ${month} (index: ${monthIndex}), year: ${year}`);
+    
+    const filteredDates = availableDates.filter(dateStr => {
+      const date = new Date(dateStr);
+      const matches = date.getFullYear() === year && date.getMonth() === monthIndex;
+      return matches;
+    });
+    
+    console.log(`Found ${filteredDates.length} dates for ${month} ${year}`);
+    return filteredDates;
+  }, [availableDates]);
+  
+  // Fetch dashboard data
+  const fetchDashboardData = useCallback(async () => {
+    const cacheKey = `${selectedPeriod}-${selectedPeriod === 'daily' ? selectedDate : 
+    selectedPeriod === 'weekly' ? selectedWeek : selectedMonth}`;
+
+    console.log("Fetching data with key:", cacheKey);
+    console.log("Cache contains keys:", Object.keys(dataCache));
+
+    if (dataCache[cacheKey]) {
+    console.log("Using cached data for", cacheKey);
+    setAnalytics({ loading: false, ...dataCache[cacheKey] });
+    return;
+    }
+    
+    try {
+      setAnalytics(prev => ({ ...prev, loading: true }));
+      console.log("Loading new data for", cacheKey);
+
+      
+      let dateRange: string[] = [];
+      
+      if (selectedPeriod === 'daily' && selectedDate) {
+        dateRange = [selectedDate];
+      } else if (selectedPeriod === 'weekly' && selectedWeek) {
+        dateRange = getDatesForWeek(selectedWeek);
+        console.log("Week dates:", selectedWeek, dateRange);
+      } else if (selectedPeriod === 'monthly' && selectedMonth) {
+        dateRange = getDatesForMonth(selectedMonth);
+        console.log("Month dates:", selectedMonth, dateRange);
+      }
+      if (dateRange.length === 0) {
+        setAnalytics({
+          loading: false,
+          salesData: [],
+          paymentMethodDistribution: [],
+          expenseCategories: [],
+          employeeAdvances: [],
+          dailySummary: []
+        });
+        return;
+      }
+      
+      // Fetch all data in parallel
+      const allData = await Promise.all(
+        dateRange.map(date => 
+          fetch(`/api/daily-data?date=${date}`)
+            .then(res => res.ok ? res.json() : null)
+            .catch(() => null)
+        )
+      ).then(results => results.filter(Boolean));
+      
+      if (allData.length === 0) {
+        setAnalytics({
+          loading: false,
+          salesData: [],
+          paymentMethodDistribution: [],
+          expenseCategories: [],
+          employeeAdvances: [],
+          dailySummary: []
+        });
+        return;
+      }
+      
+      const processedData = processDataForDashboard(allData, selectedPeriod);
+      
+      setDataCache(prev => ({ ...prev, [cacheKey]: processedData }));
+      setAnalytics({
+        loading: false,
+        salesData: processedData.salesData || [],
+        paymentMethodDistribution: processedData.paymentMethodDistribution || [],
+        expenseCategories: processedData.expenseCategories || [],
+        employeeAdvances: processedData.employeeAdvances || [],
+        dailySummary: processedData.dailySummary || []
+      });
+      
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setAnalytics(prev => ({ ...prev, loading: false }));
+    }
+  }, [selectedPeriod, selectedDate, selectedWeek, selectedMonth, dataCache, getDatesForWeek, getDatesForMonth]);
+
+  useEffect(() => {
     if (
       (selectedPeriod === 'daily' && selectedDate) ||
       (selectedPeriod === 'weekly' && selectedWeek) ||
@@ -246,57 +327,21 @@ export default function Dashboard() {
     ) {
       fetchDashboardData();
     }
-  }, [selectedPeriod, selectedDate, selectedWeek, selectedMonth, availableDates, dataCache]);
+  }, [selectedPeriod, selectedDate, selectedWeek, selectedMonth, fetchDashboardData]);
 
-  // Helper function to get dates for a specific week
-  const getDatesForWeek = (weekNum: number, monthName: string, year: number, availableDates: string[]): string[] => {
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthIndex = monthNames.findIndex(m => m === monthName);
-    if (monthIndex === -1) return [];
-    
-    return availableDates.filter(dateStr => {
-      const date = new Date(dateStr);
-      if (date.getFullYear() !== year || date.getMonth() !== monthIndex) return false;
-      
-      const firstDayOfMonth = new Date(year, monthIndex, 1);
-      const dayOfMonth = date.getDate();
-      const currentWeekOfMonth = Math.ceil((dayOfMonth + firstDayOfMonth.getDay()) / 7);
-      return currentWeekOfMonth === weekNum;
-    });
-  };
-
-  // Helper function to get dates for a specific month
-  const getDatesForMonth = (monthName: string, year: number, availableDates: string[]): string[] => {
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                       'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthIndex = monthNames.findIndex(m => m === monthName);
-    if (monthIndex === -1) return [];
-    
-    return availableDates.filter(dateStr => {
-      const date = new Date(dateStr);
-      return date.getFullYear() === year && date.getMonth() === monthIndex;
-    });
-  };
-
-  // Process the fetched data for the dashboard
-  const processDataForDashboard = (dailyData: DailyData, allData: DailyData[], 
-    periodType: 'daily' | 'weekly' | 'monthly'): Partial<AnalyticsState> => {
-    
+  // Process data for dashboard display
+  const processDataForDashboard = (
+    allData: DailyData[],
+    periodType: 'daily' | 'weekly' | 'monthly'
+  ): Partial<AnalyticsState> => {
     // Payment method distribution
     let totalCash = 0, totalUpi = 0, totalCard = 0;
     
-    if (periodType === 'daily') {
-      totalCash = parseFloat(dailyData.cash || '0');
-      totalUpi = parseFloat(dailyData.upi || '0');
-      totalCard = parseFloat(dailyData.card || '0');
-    } else {
-      allData.forEach(data => {
-        totalCash += parseFloat(data.cash || '0');
-        totalUpi += parseFloat(data.upi || '0');
-        totalCard += parseFloat(data.card || '0');
-      });
-    }
+    allData.forEach(data => {
+      totalCash += parseFloat(data.cash || '0');
+      totalUpi += parseFloat(data.upi || '0');
+      totalCard += parseFloat(data.card || '0');
+    });
     
     const totalPayments = totalCash + totalUpi + totalCard;
     const paymentMethodDistribution = [
@@ -307,22 +352,17 @@ export default function Dashboard() {
 
     // Expense categories
     const expenseMap = new Map<string, number>();
-    const processExpenses = (expenses: ExpenseDetail[] = []) => {
-      expenses.forEach(expense => {
+    allData.forEach(data => {
+      (data.expenses || []).forEach(expense => {
         if (expense.description && expense.amount) {
           expenseMap.set(expense.description, (expenseMap.get(expense.description) || 0) + expense.amount);
         }
       });
-    };
-
-    if (periodType === 'daily') {
-      processExpenses(dailyData.expenses);
-    } else {
-      allData.forEach(data => processExpenses(data.expenses));
-    }
+    });
 
     const expenseCategories = Array.from(expenseMap.entries())
       .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount)
       .filter(category => category.amount > 0);
 
     // Sales data
@@ -330,21 +370,23 @@ export default function Dashboard() {
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     if (periodType === 'daily') {
-      salesData = [{ time: 'Daily Total', sales: dailyData.totalSales || 0 }];
+      salesData = allData.map(data => ({
+        time: data.date ? new Date(data.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Unknown',
+        date: data.date,
+        sales: data.totalSales || 0
+      }));
     } else if (periodType === 'weekly') {
-      salesData = allData
-        .filter(data => data.date && data.totalSales !== undefined)
-        .map(data => ({
-          day: data.date ? dayNames[new Date(data.date).getDay()] : 'Unknown',
-          sales: data.totalSales || 0
-        }));
+      salesData = allData.map(data => ({
+        day: data.date ? dayNames[new Date(data.date).getDay()] : 'Unknown',
+        date: data.date ? new Date(data.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Unknown',
+        sales: data.totalSales || 0
+      }));
     } else {
-      salesData = allData
-        .filter(data => data.date && data.totalSales !== undefined)
-        .map(data => ({
-          month: `${data.date ? new Date(data.date).getDate() : ''}`,
-          sales: data.totalSales || 0
-        }));
+      salesData = allData.map(data => ({
+        month: data.date ? new Date(data.date).toLocaleDateString('en-US', { day: 'numeric' }) : 'Unknown',
+        date: data.date,
+        sales: data.totalSales || 0
+      }));
     }
 
     // Employee advances
@@ -358,6 +400,7 @@ export default function Dashboard() {
 
     const employeeAdvances = Array.from(employeeAdvanceMap.entries())
       .map(([name, advances]) => ({ name, advances }))
+      .sort((a, b) => b.advances - a.advances)
       .filter(advance => advance.advances > 0);
 
     // Daily summary
@@ -380,20 +423,32 @@ export default function Dashboard() {
     };
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedDate(e.target.value);
+  const handleDateChange = (newDate: string) => {
+    setSelectedDate(newDate);
   };
 
-  const handleWeekChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedWeek(e.target.value);
+  const handleWeekChange = (newWeek: string) => {
+    setSelectedWeek(newWeek);
+    console.log("Selected week changed to:", newWeek);
   };
 
-  const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedMonth(e.target.value);
+  const handleMonthChange = (newMonth: string) => {
+    console.log("Month changed from", selectedMonth, "to", newMonth);
+    
+    // Clear cached data for this period type
+    const cacheKeysToRemove = Object.keys(dataCache).filter(key => key.startsWith('monthly-'));
+    const newCache = {...dataCache};
+    cacheKeysToRemove.forEach(key => delete newCache[key]);
+    setDataCache(newCache);
+    
+    // Update the selected month
+    setSelectedMonth(newMonth);
   };
 
   const handlePeriodChange = (period: 'daily' | 'weekly' | 'monthly') => {
     setSelectedPeriod(period);
+    // Clear cache when switching period types
+    setDataCache({});
   };
 
   const formatCurrency = (amount: number): string => {
@@ -404,11 +459,14 @@ export default function Dashboard() {
     }).format(amount);
   };
 
-  // Calculate summaries
-  const totalSales = analytics.loading ? 0 : analytics.salesData.reduce((sum, item) => sum + (item.sales || 0), 0);
-  const totalExpenses = analytics.loading ? 0 : analytics.expenseCategories.reduce((sum, item) => sum + (item.amount || 0), 0);
-
-  const COLORS = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'];
+  // Format functions for the dropdowns
+  const formatDateForDisplay = (dateStr: string): string => {
+    return new Date(dateStr).toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
 
   // Skeleton loading component
   const SkeletonLoader = () => (
@@ -462,6 +520,13 @@ export default function Dashboard() {
     </div>
   );
 
+  // Calculate summaries
+  const totalSales = analytics.loading ? 0 : analytics.salesData.reduce((sum, item) => sum + (item.sales || 0), 0);
+  const totalExpenses = analytics.loading ? 0 : analytics.expenseCategories.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const totalAdvances = analytics.loading ? 0 : analytics.employeeAdvances.reduce((sum, emp) => sum + (emp.advances || 0), 0);
+
+  const COLORS = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'];
+
   if (isLoading) {
     return <SkeletonLoader />;
   }
@@ -478,51 +543,35 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
             {selectedPeriod === 'daily' && (
-              <select 
-                className="bg-white border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <SearchableDropdown
                 value={selectedDate}
+                options={availableDates}
                 onChange={handleDateChange}
-              >
-                {availableDates.length > 0 ? (
-                  availableDates.map(date => (
-                    <option key={date} value={date}>{date}</option>
-                  ))
-                ) : (
-                  <option value="">No dates available</option>
-                )}
-              </select>
+                placeholder="Select a date"
+                className="w-64"
+                formatOption={formatDateForDisplay}
+                formatSelection={formatDateForDisplay}
+              />
             )}
             
             {selectedPeriod === 'weekly' && (
-              <select 
-                className="bg-white border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <SearchableDropdown
                 value={selectedWeek}
+                options={availableWeeks}
                 onChange={handleWeekChange}
-              >
-                {availableWeeks.length > 0 ? (
-                  availableWeeks.map(week => (
-                    <option key={week} value={week}>{week}</option>
-                  ))
-                ) : (
-                  <option value="">No weeks available</option>
-                )}
-              </select>
+                placeholder="Select a week"
+                className="w-64"
+              />
             )}
             
             {selectedPeriod === 'monthly' && (
-              <select 
-                className="bg-white border border-gray-300 rounded-md py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <SearchableDropdown
                 value={selectedMonth}
+                options={availableMonths}
                 onChange={handleMonthChange}
-              >
-                {availableMonths.length > 0 ? (
-                  availableMonths.map(month => (
-                    <option key={month} value={month}>{month}</option>
-                  ))
-                ) : (
-                  <option value="">No months available</option>
-                )}
-              </select>
+                placeholder="Select a month"
+                className="w-64"
+              />
             )}
             
             <div className="bg-white rounded-md shadow-sm flex">
@@ -591,7 +640,7 @@ export default function Dashboard() {
               <div>
                 <p className="text-sm text-gray-500">Staff Advances</p>
                 <p className="text-2xl font-bold text-gray-800">
-                  {formatCurrency(analytics.employeeAdvances.reduce((sum, emp) => sum + (emp.advances || 0), 0))}
+                  {formatCurrency(totalAdvances)}
                 </p>
               </div>
             </div>
@@ -605,7 +654,7 @@ export default function Dashboard() {
             <div className="h-80">
               {analytics.loading ? (
                 <div className="h-full bg-gray-100 rounded animate-pulse"></div>
-              ) : (
+              ) : analytics.salesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart
                     data={analytics.salesData}
@@ -617,7 +666,22 @@ export default function Dashboard() {
                               selectedPeriod === 'weekly' ? 'day' : 'month'} 
                     />
                     <YAxis />
-                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Tooltip 
+                      formatter={(value) => formatCurrency(value as number)}
+                      labelFormatter={(label) => {
+                        const dataPoint = analytics.salesData.find(item => 
+                          selectedPeriod === 'daily' ? item.time === label :
+                          selectedPeriod === 'weekly' ? item.day === label :
+                          item.month === label
+                        );
+                        return dataPoint?.date ? 
+                          new Date(dataPoint.date).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          }) : label;
+                      }}
+                    />
                     <Legend />
                     <Line 
                       type="monotone" 
@@ -629,6 +693,10 @@ export default function Dashboard() {
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-500">
+                  No sales data available
+                </div>
               )}
             </div>
           </div>
@@ -723,7 +791,7 @@ export default function Dashboard() {
                     <tr>
                       <td className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</td>
                       <td className="px-6 py-3 text-left text-xs font-medium text-blue-600 uppercase tracking-wider">
-                        {formatCurrency(analytics.employeeAdvances.reduce((sum, emp) => sum + (emp.advances || 0), 0))}
+                        {formatCurrency(totalAdvances)}
                       </td>
                     </tr>
                   </tfoot>
@@ -757,7 +825,9 @@ export default function Dashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {analytics.dailySummary.map((day, index) => (
                     <tr key={index}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{day.date}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(day.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatCurrency(day.openingBalance)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">{formatCurrency(day.totalSales)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">{formatCurrency(day.totalExpenses)}</td>

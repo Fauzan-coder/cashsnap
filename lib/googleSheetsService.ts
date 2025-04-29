@@ -106,11 +106,6 @@ class GoogleSheetsService {
     advanceSalary: number;
   }> {
     try {
-      // Get yesterday's date in YYYY-MM-DD format
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayFormatted = yesterday.toISOString().split('T')[0];
-  
       // Read from Summary sheet
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
@@ -124,20 +119,37 @@ class GoogleSheetsService {
         return { openingBalance: 0, sales: 0, expenses: 0, advanceSalary: 0 };
       }
       
+      // Get today's date and format it
+      let today = new Date();
+      // If it's past midnight but before 5AM, consider it previous day
+      if (today.getHours() >= 0 && today.getHours() < 5) {
+        today.setDate(today.getDate() - 1);
+      }
+      
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayFormatted = yesterday.toISOString().split('T')[0];
+      
       // Find yesterday's row
       const yesterdayRow: string[] | undefined = rows.find((row: string[]) => row[0] === yesterdayFormatted);
       
       if (yesterdayRow) {
         return {
-          openingBalance: parseFloat(yesterdayRow[1] || '0'),
-          sales: parseFloat(yesterdayRow[2] || '0'),
-          expenses: parseFloat(yesterdayRow[3] || '0'),
-          advanceSalary: parseFloat(yesterdayRow[4] || '0')
+          openingBalance: parseFloat(yesterdayRow[5] || '0'), // Use closing balance as opening balance
+          sales: 0,
+          expenses: 0,
+          advanceSalary: 0
         };
       }
       
       // If no data found for yesterday, use the last available entry's closing balance
-      const lastRow = rows[rows.length - 1];
+      // Sort rows by date and find the most recent one
+      const dataRows = rows.slice(1); // Skip header
+      dataRows.sort((a: string[], b: string[]) => {
+        return new Date(b[0]).getTime() - new Date(a[0]).getTime();
+      });
+      
+      const lastRow = dataRows[0];
       return {
         openingBalance: parseFloat(lastRow[5] || '0'),  // Use the closing balance as opening
         sales: 0,
@@ -233,93 +245,99 @@ class GoogleSheetsService {
         spreadsheetId: this.spreadsheetId,
         range: 'Summary!A:A',
       });
-
+  
       const rows = response.data.values || [];
       
-      // Skip the header row and return all dates
-      return rows.slice(1).map((row: string[]) => row[0] || '').filter(Boolean);
+      // Skip the header row, filter out empty values, and sort by date (newest first)
+      const dates = rows.slice(1)
+        .map((row: string[]) => row[0] || '')
+        .filter(Boolean);
+        
+      return dates.sort((a: string, b: string): number => new Date(b).getTime() - new Date(a).getTime());
     } catch (error) {
       console.error('Error fetching available dates:', error);
       return [];
     }
   }
 
-  // Get data for a specific date
-  // async getDataForDate(date: string): Promise<SalesData | null> {
-  //   try {
-  //     // Get sales data
-  //     const salesResponse = await this.sheets.spreadsheets.values.get({
-  //       spreadsheetId: this.spreadsheetId,
-  //       range: 'Sales!A:E',
-  //     });
+  async checkDateExists(date: string): Promise<boolean> {
+    try {
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'Summary!A:A',
+      });
+  
+      const rows = response.data.values || [];
       
-  //     const salesRows = salesResponse.data.values || [];
-  //     const salesRow = salesRows.find((row: string[]) => row[0] === date);
-      
-  //     if (!salesRow) {
-  //       return null; // No data found for this date
-  //     }
-      
-  //     // Get expenses data
-  //     const expensesResponse = await this.sheets.spreadsheets.values.get({
-  //       spreadsheetId: this.spreadsheetId,
-  //       range: 'Expenses!A:C',
-  //     });
-      
-  //     const expensesRows = expensesResponse.data.values || [];
-  //     const dateExpenses = expensesRows
-  //       .filter((row: string[]) => row[0] === date)
-  //       .map((row: string[]) => ({
-  //         description: row[1] || '',
-  //         amount: parseFloat(row[2] || '0')
-  //       }));
-      
-  //     // Get advance salary data
-  //     const advanceResponse = await this.sheets.spreadsheets.values.get({
-  //       spreadsheetId: this.spreadsheetId,
-  //       range: 'AdvanceSalary!A:D',
-  //     });
-      
-  //     const advanceRows = advanceResponse.data.values || [];
-  //     const advanceRow = advanceRows.find((row: string[]) => row[0] === date);
-      
-  //     const advanceSalary = {
-  //       employee: advanceRow ? advanceRow[1] || '' : '',
-  //       amount: advanceRow ? parseFloat(advanceRow[2] || '0') : 0,
-  //       remarks: advanceRow ? advanceRow[3] || '' : ''
-  //     };
-      
-  //     // Get summary data
-  //     const summaryResponse = await this.sheets.spreadsheets.values.get({
-  //       spreadsheetId: this.spreadsheetId,
-  //       range: 'Summary!A:G',
-  //     });
-      
-  //     const summaryRows = summaryResponse.data.values || [];
-  //     const summaryRow = summaryRows.find((row: string[]) => row[0] === date);
-      
-  //     if (!summaryRow) {
-  //       return null; // No summary data found
-  //     }
-      
-  //     // Construct complete data object
-  //     return {
-  //       date,
-  //       cash: salesRow[1] || '0',
-  //       upi: salesRow[2] || '0',
-  //       card: salesRow[3] || '0',
-  //       totalSales: parseFloat(salesRow[4] || '0'),
-  //       expenses: dateExpenses as { description: string; amount: number }[],
-  //       totalExpenses: dateExpenses.reduce((sum: number, exp: { amount: number }) => sum + exp.amount, 0),
-  //       advanceSalary: advanceSalary as { employee: string; amount: number; remarks?: string },
-  //       openingBalance: parseFloat(summaryRow[1] || '0'),
-  //       closingBalance: parseFloat(summaryRow[5] || '0')
-  //     };
-  //   } catch (error) {
-  //     console.error('Error fetching data for date:', error);
-  //     return null;
-  //   }
-  // }
+      // Skip the header row and check if date exists
+      return rows.slice(1).some((row: string[]) => row[0] === date);
+    } catch (error) {
+      console.error('Error checking if date exists:', error);
+      return false;
+    }
+  }
+
+  // Check for missed dates
+async checkMissedDates(): Promise<string[]> {
+  try {
+    const dates = await this.getAvailableDates();
+    if (dates.length === 0) return [];
+    
+    const sortedDates = [...dates].sort();
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    // Find the last date with an entry
+    const lastDate = sortedDates[sortedDates.length - 1];
+    
+    // If the last date is yesterday or today, no missing entries
+    if (lastDate >= yesterdayStr) return [];
+    
+    // Calculate missing dates between last entry and yesterday
+    const missedDates: string[] = [];
+    const lastEntryDate = new Date(lastDate);
+    const currDate = new Date(lastEntryDate);
+    currDate.setDate(currDate.getDate() + 1);
+    
+    while (currDate <= yesterday) {
+      missedDates.push(currDate.toISOString().split('T')[0]);
+      currDate.setDate(currDate.getDate() + 1);
+    }
+    
+    return missedDates;
+  } catch (error) {
+    console.error('Error checking missed dates:', error);
+    return [];
+  }
+}
+
+// Get expense suggestions based on previous entries
+async getExpenseSuggestions(): Promise<string[]> {
+  try {
+    const response = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'Expenses!B:B',
+    });
+    
+    const values = response.data.values || [];
+    const descriptions = (values.flat() as string[]).filter(Boolean);
+    
+    // Get unique expense descriptions
+    const uniqueDescriptions = [...new Set(descriptions)];
+    
+    // Skip header if it exists
+    if (uniqueDescriptions[0] === "Description") {
+      return uniqueDescriptions.slice(1);
+    }
+    
+    return uniqueDescriptions;
+  } catch (error) {
+    console.error('Error fetching expense suggestions:', error);
+    return [];
+  }
+}
 
   async getDataForDate(date: string): Promise<SalesData | null> {
     try {

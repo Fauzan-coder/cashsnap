@@ -28,9 +28,9 @@ type ReportData = {
 const ReportGenerator: React.FC = () => {
   const [reportType, setReportType] = useState<ReportType>('daily');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [fromDate, setFromDate] = useState<Date | undefined>(new Date());
-  const [toDate, setToDate] = useState<Date | undefined>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [fromDate, setFromDate] = useState<Date | null>(new Date());
+  const [toDate, setToDate] = useState<Date | null>(new Date());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [reportData, setReportData] = useState<ReportData[]>([]);
   const [isFromDatePickerOpen, setIsFromDatePickerOpen] = useState(false);
@@ -63,13 +63,21 @@ const ReportGenerator: React.FC = () => {
         return dateStr >= startDateStr && dateStr <= endDateStr;
       });
       
+      // Sort dates in ascending order
+      datesInRange.sort((a, b) => a.localeCompare(b));
+      
       const dataPromises = datesInRange.map(dateStr => 
         fetch(`/api/daily-data?date=${dateStr}`).then(res => res.json())
       );
       
       const results = await Promise.all(dataPromises);
-      setReportData(results.filter(result => !result.error));
-      return results.filter(result => !result.error);
+      const filteredResults = results.filter(result => !result.error);
+      
+      // Ensure data is sorted by date in ascending order
+      filteredResults.sort((a, b) => a.date.localeCompare(b.date));
+      
+      setReportData(filteredResults);
+      return filteredResults;
     } catch (error) {
       console.error('Error fetching data for date range:', error);
       return [];
@@ -182,10 +190,13 @@ const ReportGenerator: React.FC = () => {
     doc.setFont('helvetica', 'bold');
     doc.text('Sales Summary', 14, 65);
     
+    // Ensure data is sorted by date in ascending order before generating tables
+    const sortedData = [...data].sort((a, b) => a.date.localeCompare(b.date));
+    
     autoTable(doc, {
       startY: 70,
       head: [['Date', 'Cash', 'UPI', 'Card', 'Total Sales', 'Opening Balance', 'Closing Balance']],
-      body: data.map(item => [
+      body: sortedData.map(item => [
         item.date,
         `₹${parseFloat(item.cash).toFixed(2)}`,
         `₹${parseFloat(item.upi).toFixed(2)}`,
@@ -204,7 +215,7 @@ const ReportGenerator: React.FC = () => {
     doc.text('Expense Details', 14, expensesTableY);
     
     const expensesData: Array<[string, string, string]> = [];
-    data.forEach(dateData => {
+    sortedData.forEach(dateData => {
       dateData.expenses.forEach(expense => {
         expensesData.push([
           dateData.date,
@@ -228,7 +239,7 @@ const ReportGenerator: React.FC = () => {
     }
     
     // Add advance salary table
-    const advanceSalaryData = data
+    const advanceSalaryData = sortedData
       .filter(item => item.advanceSalary.amount > 0)
       .map(item => [
         item.date,
@@ -360,21 +371,16 @@ const ReportGenerator: React.FC = () => {
     return false;
   };
 
-  const isToDateDisabled = (date: Date) => {
-    if (!fromDate) return false;
-    return date < fromDate;
-  };
-
   return (
-    <div className="mx-auto mt-6 bg-white rounded-lg shadow-md overflow-hidden">
-      <div className="p-6 border-b border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-800">Download Reports</h2>
+    <div className="w-full mx-auto mt-6 bg-white rounded-lg shadow-md overflow-hidden">
+      <div className="p-4 sm:p-6 border-b border-gray-200">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Download Reports</h2>
       </div>
       
-      <div className="p-6">
-        <div className="space-y-6">
+      <div className="p-4 sm:p-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Report Type Selection */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">Report Type</label>
               <select
@@ -432,9 +438,17 @@ const ReportGenerator: React.FC = () => {
                           setIsDatePickerOpen(false);
                         }}
                         inline
-                        filterDate={isDateDisabled}
+                        filterDate={reportType === 'daily' ? isDateDisabled : undefined}
                         showMonthYearPicker={reportType === 'monthly'}
                         showYearPicker={reportType === 'yearly'}
+                        dateFormat={
+                          reportType === 'monthly' 
+                            ? "MMMM yyyy" 
+                            : reportType === 'yearly' 
+                              ? "yyyy" 
+                              : "PP"
+                        }
+                        calendarStartDay={1}
                       />
                     </div>
                   )}
@@ -444,7 +458,7 @@ const ReportGenerator: React.FC = () => {
 
             {/* Custom Date Range Selection */}
             {reportType === 'custom' && (
-              <div className="space-y-4 col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4 col-span-1 sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">From Date</label>
                   <div className="relative">
@@ -471,10 +485,17 @@ const ReportGenerator: React.FC = () => {
                           onChange={(date: Date | null) => {
                             if (date) {
                               setFromDate(date);
+                              // If toDate is before fromDate, update toDate
+                              if (toDate && date > toDate) {
+                                setToDate(date);
+                              }
                             }
                             setIsFromDatePickerOpen(false);
                           }}
                           inline
+                          selectsStart
+                          startDate={fromDate}
+                          endDate={toDate}
                         />
                       </div>
                     )}
@@ -511,7 +532,10 @@ const ReportGenerator: React.FC = () => {
                             setIsToDatePickerOpen(false);
                           }}
                           inline
-                          filterDate={isToDateDisabled}
+                          selectsEnd
+                          startDate={fromDate}
+                          endDate={toDate}
+                          minDate={fromDate || undefined}
                         />
                       </div>
                     )}
@@ -523,9 +547,9 @@ const ReportGenerator: React.FC = () => {
 
           {/* Date range preview */}
           {reportType && (reportType !== 'custom' ? selectedDate : (fromDate && toDate)) && (
-            <div className="bg-gray-50 p-4 rounded-md mt-4">
-              <h3 className="text-sm font-medium mb-2 text-gray-700">Report Preview</h3>
-              <p className="text-sm text-gray-600">
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-md mt-2 sm:mt-4">
+              <h3 className="text-xs sm:text-sm font-medium mb-1 sm:mb-2 text-gray-700">Report Preview</h3>
+              <p className="text-xs sm:text-sm text-gray-600">
                 <span className="font-medium">{getReportTitle(reportType)}</span><br />
                 <span>{getDateRangeText(reportType)}</span>
               </p>
@@ -542,7 +566,7 @@ const ReportGenerator: React.FC = () => {
                 (reportType === 'custom' && (!fromDate || !toDate))
               }
               className={`
-                w-full md:w-auto px-4 py-2 text-white font-medium rounded-md shadow-sm
+                w-full px-4 py-2 text-white font-medium rounded-md shadow-sm
                 ${isLoading ? 'bg-black cursor-not-allowed' : 'bg-black hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'}
               `}
             >
@@ -555,7 +579,7 @@ const ReportGenerator: React.FC = () => {
                   Generating...
                 </div>
               ) : (
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
