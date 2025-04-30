@@ -73,7 +73,7 @@ interface AnalyticsState {
 
 export default function Dashboard() {
   const [dataCache, setDataCache] = useState<{[key: string]: Partial<AnalyticsState>}>({});
-  const [selectedPeriod, setSelectedPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [selectedPeriod, setSelectedPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [availableWeeks, setAvailableWeeks] = useState<string[]>([]);
