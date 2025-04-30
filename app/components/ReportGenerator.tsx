@@ -32,7 +32,7 @@ const ReportGenerator: React.FC = () => {
   const [fromDate, setFromDate] = useState<Date | null>(new Date());
   const [toDate, setToDate] = useState<Date | null>(new Date());
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [reportData, setReportData] = useState<ReportData[]>([]);
+//   const [reportData, setReportData] = useState<ReportData[]>([]);
   const [isFromDatePickerOpen, setIsFromDatePickerOpen] = useState(false);
   const [isToDatePickerOpen, setIsToDatePickerOpen] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -76,7 +76,7 @@ const ReportGenerator: React.FC = () => {
       // Ensure data is sorted by date in ascending order
       filteredResults.sort((a, b) => a.date.localeCompare(b.date));
       
-      setReportData(filteredResults);
+    //   setReportData(filteredResults);
       return filteredResults;
     } catch (error) {
       console.error('Error fetching data for date range:', error);
@@ -249,7 +249,7 @@ const ReportGenerator: React.FC = () => {
       ]);
     
     if (advanceSalaryData.length > 0) {
-      const advanceSalaryTableY = (doc as any).lastAutoTable?.finalY + 10 || 10;
+      const advanceSalaryTableY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY + 10 || 10;
       doc.setFont('helvetica', 'bold');
       doc.text('Advance Salary Details', 14, advanceSalaryTableY);
       

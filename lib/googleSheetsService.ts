@@ -1,5 +1,5 @@
 // app/lib/googleSheetsService.ts
-import { google } from 'googleapis';
+import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 
 // Interface for sales data
@@ -22,7 +22,7 @@ interface SalesData {
 
 class GoogleSheetsService {
   private jwtClient: JWT;
-  private sheets: any;
+  private sheets: sheets_v4.Sheets;
   private spreadsheetId: string;
 
   constructor() {
@@ -48,7 +48,7 @@ class GoogleSheetsService {
 
       // Create or ensure required sheets exist with headers
       const sheets = ['Sales', 'Expenses', 'AdvanceSalary', 'Summary'];
-      const headers = {
+      const headers: Record<string, string[]> = {
         'Sales': ['Date', 'Cash', 'UPI', 'Card', 'Total Sales'],
         'Expenses': ['Date', 'Description', 'Amount'],
         'AdvanceSalary': ['Date', 'Employee', 'Amount', 'Remarks'],
@@ -60,16 +60,17 @@ class GoogleSheetsService {
         spreadsheetId: this.spreadsheetId
       });
       
-      const existingSheets = spreadsheet.data.sheets.map(
-        (sheet: any) => sheet.properties.title
-      );
+      const existingSheets = spreadsheet.data.sheets?.map(
+        sheet => sheet.properties?.title || ''
+      ) || [];
+      
 
       // Add any missing sheets
       for (const sheet of sheets) {
         if (!existingSheets.includes(sheet)) {
           await this.sheets.spreadsheets.batchUpdate({
             spreadsheetId: this.spreadsheetId,
-            resource: {
+            requestBody: {
               requests: [{
                 addSheet: {
                   properties: {
@@ -85,8 +86,8 @@ class GoogleSheetsService {
             spreadsheetId: this.spreadsheetId,
             range: `${sheet}!A1:E1`,
             valueInputOption: 'USER_ENTERED',
-            resource: {
-              values: [headers[sheet as keyof typeof headers]]
+            requestBody: {
+              values: [headers[sheet]]
             }
           });
         }
@@ -120,7 +121,7 @@ class GoogleSheetsService {
       }
       
       // Get today's date and format it
-      let today = new Date();
+      const today = new Date();
       // If it's past midnight but before 5AM, consider it previous day
       if (today.getHours() >= 0 && today.getHours() < 5) {
         today.setDate(today.getDate() - 1);
@@ -131,7 +132,7 @@ class GoogleSheetsService {
       const yesterdayFormatted = yesterday.toISOString().split('T')[0];
       
       // Find yesterday's row
-      const yesterdayRow: string[] | undefined = rows.find((row: string[]) => row[0] === yesterdayFormatted);
+      const yesterdayRow = rows.find((row: string[]) => row[0] === yesterdayFormatted);
       
       if (yesterdayRow) {
         return {
@@ -169,7 +170,7 @@ class GoogleSheetsService {
         spreadsheetId: this.spreadsheetId,
         range: 'Sales!A:E',
         valueInputOption: 'USER_ENTERED',
-        resource: {
+        requestBody: {
           values: [[
             data.date,
             data.cash,
@@ -192,7 +193,7 @@ class GoogleSheetsService {
           spreadsheetId: this.spreadsheetId,
           range: 'Expenses!A:C',
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: expenseRows
           }
         });
@@ -204,7 +205,7 @@ class GoogleSheetsService {
           spreadsheetId: this.spreadsheetId,
           range: 'AdvanceSalary!A:D',
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: [[
               data.date,
               data.advanceSalary.employee,
@@ -220,7 +221,7 @@ class GoogleSheetsService {
         spreadsheetId: this.spreadsheetId,
         range: 'Summary!A:G',
         valueInputOption: 'USER_ENTERED',
-        resource: {
+        requestBody: {
           values: [[
             data.date,
             data.openingBalance,
@@ -278,66 +279,66 @@ class GoogleSheetsService {
   }
 
   // Check for missed dates
-async checkMissedDates(): Promise<string[]> {
-  try {
-    const dates = await this.getAvailableDates();
-    if (dates.length === 0) return [];
-    
-    const sortedDates = [...dates].sort();
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    
-    // Find the last date with an entry
-    const lastDate = sortedDates[sortedDates.length - 1];
-    
-    // If the last date is yesterday or today, no missing entries
-    if (lastDate >= yesterdayStr) return [];
-    
-    // Calculate missing dates between last entry and yesterday
-    const missedDates: string[] = [];
-    const lastEntryDate = new Date(lastDate);
-    const currDate = new Date(lastEntryDate);
-    currDate.setDate(currDate.getDate() + 1);
-    
-    while (currDate <= yesterday) {
-      missedDates.push(currDate.toISOString().split('T')[0]);
+  async checkMissedDates(): Promise<string[]> {
+    try {
+      const dates = await this.getAvailableDates();
+      if (dates.length === 0) return [];
+      
+      const sortedDates = [...dates].sort();
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      
+      // Find the last date with an entry
+      const lastDate = sortedDates[sortedDates.length - 1];
+      
+      // If the last date is yesterday or today, no missing entries
+      if (lastDate >= yesterdayStr) return [];
+      
+      // Calculate missing dates between last entry and yesterday
+      const missedDates: string[] = [];
+      const lastEntryDate = new Date(lastDate);
+      const currDate = new Date(lastEntryDate);
       currDate.setDate(currDate.getDate() + 1);
+      
+      while (currDate <= yesterday) {
+        missedDates.push(currDate.toISOString().split('T')[0]);
+        currDate.setDate(currDate.getDate() + 1);
+      }
+      
+      return missedDates;
+    } catch (error) {
+      console.error('Error checking missed dates:', error);
+      return [];
     }
-    
-    return missedDates;
-  } catch (error) {
-    console.error('Error checking missed dates:', error);
-    return [];
   }
-}
 
-// Get expense suggestions based on previous entries
-async getExpenseSuggestions(): Promise<string[]> {
-  try {
-    const response = await this.sheets.spreadsheets.values.get({
-      spreadsheetId: this.spreadsheetId,
-      range: 'Expenses!B:B',
-    });
-    
-    const values = response.data.values || [];
-    const descriptions = (values.flat() as string[]).filter(Boolean);
-    
-    // Get unique expense descriptions
-    const uniqueDescriptions = [...new Set(descriptions)];
-    
-    // Skip header if it exists
-    if (uniqueDescriptions[0] === "Description") {
-      return uniqueDescriptions.slice(1);
+  // Get expense suggestions based on previous entries
+  async getExpenseSuggestions(): Promise<string[]> {
+    try {
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'Expenses!B:B',
+      });
+      
+      const values = response.data.values || [];
+      const descriptions = (values.flat() as string[]).filter(Boolean);
+      
+      // Get unique expense descriptions
+      const uniqueDescriptions = [...new Set(descriptions)];
+      
+      // Skip header if it exists
+      if (uniqueDescriptions[0] === "Description") {
+        return uniqueDescriptions.slice(1);
+      }
+      
+      return uniqueDescriptions;
+    } catch (error) {
+      console.error('Error fetching expense suggestions:', error);
+      return [];
     }
-    
-    return uniqueDescriptions;
-  } catch (error) {
-    console.error('Error fetching expense suggestions:', error);
-    return [];
   }
-}
 
   async getDataForDate(date: string): Promise<SalesData | null> {
     try {
@@ -347,7 +348,12 @@ async getExpenseSuggestions(): Promise<string[]> {
         ranges: ['Sales!A:E', 'Expenses!A:C', 'AdvanceSalary!A:D', 'Summary!A:G'],
       });
       
-      const [salesData, expensesData, advanceData, summaryData] = response.data.valueRanges;
+      const valueRanges = response.data.valueRanges || [];
+      if (valueRanges.length < 4) {
+        return null; // Not all required data found
+      }
+      
+      const [salesData, expensesData, advanceData, summaryData] = valueRanges;
       
       const salesRows = salesData.values || [];
       const salesRow = salesRows.find((row: string[]) => row[0] === date);
@@ -386,9 +392,9 @@ async getExpenseSuggestions(): Promise<string[]> {
         upi: salesRow[2] || '0',
         card: salesRow[3] || '0',
         totalSales: parseFloat(salesRow[4] || '0'),
-        expenses: dateExpenses as { description: string; amount: number }[],
+        expenses: dateExpenses,
         totalExpenses: dateExpenses.reduce((sum: number, exp: { amount: number }) => sum + exp.amount, 0),
-        advanceSalary: advanceSalary as { employee: string; amount: number; remarks?: string },
+        advanceSalary,
         openingBalance: parseFloat(summaryRow[1] || '0'),
         closingBalance: parseFloat(summaryRow[5] || '0')
       };
@@ -405,8 +411,12 @@ async getExpenseSuggestions(): Promise<string[]> {
       });
       
       const sheetIds: Record<string, number> = {};
-      response.data.sheets.forEach((sheet: any) => {
-        sheetIds[sheet.properties.title] = sheet.properties.sheetId;
+      response.data.sheets?.forEach(sheet => {
+        if (sheet.properties?.title && sheet.properties?.sheetId !== undefined) {
+          if (sheet.properties.sheetId !== null) {
+            sheetIds[sheet.properties.title] = sheet.properties.sheetId;
+          }
+        }
       });
       
       return sheetIds;
@@ -437,7 +447,7 @@ async getExpenseSuggestions(): Promise<string[]> {
         spreadsheetId: this.spreadsheetId,
         range: `Sales!B${salesRowIndex + 1}:E${salesRowIndex + 1}`,
         valueInputOption: 'USER_ENTERED',
-        resource: {
+        requestBody: {
           values: [[
             data.cash,
             data.upi,
@@ -459,15 +469,15 @@ async getExpenseSuggestions(): Promise<string[]> {
         .filter((index: number): boolean => index !== -1);
       
       // Delete existing expense entries (in reverse order to maintain indices)
-      if (expenseIndices.length > 0) {
+      if (expenseIndices.length > 0 && sheetIds['Expenses'] !== undefined) {
         for (let i = expenseIndices.length - 1; i >= 0; i--) {
           await this.sheets.spreadsheets.batchUpdate({
             spreadsheetId: this.spreadsheetId,
-            resource: {
+            requestBody: {
               requests: [{
                 deleteDimension: {
                   range: {
-                    sheetId: sheetIds['Expenses'], // Use the actual Expenses sheet ID
+                    sheetId: sheetIds['Expenses'],
                     dimension: 'ROWS',
                     startIndex: expenseIndices[i],
                     endIndex: expenseIndices[i] + 1
@@ -491,7 +501,7 @@ async getExpenseSuggestions(): Promise<string[]> {
           spreadsheetId: this.spreadsheetId,
           range: 'Expenses!A:C',
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: expenseRows
           }
         });
@@ -512,7 +522,7 @@ async getExpenseSuggestions(): Promise<string[]> {
           spreadsheetId: this.spreadsheetId,
           range: `AdvanceSalary!B${advanceRowIndex + 1}:D${advanceRowIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: [[
               data.advanceSalary.employee,
               data.advanceSalary.amount,
@@ -526,7 +536,7 @@ async getExpenseSuggestions(): Promise<string[]> {
           spreadsheetId: this.spreadsheetId,
           range: 'AdvanceSalary!A:D',
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: [[
               date,
               data.advanceSalary.employee,
@@ -551,7 +561,7 @@ async getExpenseSuggestions(): Promise<string[]> {
           spreadsheetId: this.spreadsheetId,
           range: `Summary!B${summaryRowIndex + 1}:F${summaryRowIndex + 1}`,
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: [[
               data.openingBalance,
               data.totalSales,
@@ -596,10 +606,7 @@ async getExpenseSuggestions(): Promise<string[]> {
       for (let i = fromDateIndex + 1; i < summaryRows.length; i++) {
         const currentRow = summaryRows[i];
         const previousRow = summaryRows[i - 1];
-        
-        // Get the current date
-        const currentDate = currentRow[0];
-        
+                
         // Set opening balance to previous day's closing balance
         const newOpeningBalance = parseFloat(previousRow[5] || '0');
         
@@ -616,7 +623,7 @@ async getExpenseSuggestions(): Promise<string[]> {
           spreadsheetId: this.spreadsheetId,
           range: `Summary!B${i + 1}:F${i + 1}`,
           valueInputOption: 'USER_ENTERED',
-          resource: {
+          requestBody: {
             values: [[
               newOpeningBalance,
               sales,
@@ -638,4 +645,5 @@ async getExpenseSuggestions(): Promise<string[]> {
   }
 }
 
-export default new GoogleSheetsService();
+const googleSheetsService = new GoogleSheetsService();
+export default googleSheetsService;

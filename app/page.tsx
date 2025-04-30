@@ -22,6 +22,27 @@ type AdvanceSalary = {
   remarks: string;
 };
 
+type SubmissionData = {
+  date: string;
+  cash: string;
+  upi: string;
+  card: string;
+  totalSales: number;
+  expenses: {
+    description: string;
+    amount: number;
+  }[];
+  totalExpenses: number;
+  advanceSalary: {
+    employee: string;
+    amount: number;
+    remarks: string;
+  };
+  openingBalance: number;
+  closingBalance: number;
+  isUpdate: boolean;
+};
+
 export default function Home() {
   // State for sales data
   const [salesData, setSalesData] = useState<SalesData>({
@@ -52,20 +73,30 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [originalOpeningBalance, setOriginalOpeningBalance] = useState<number>(0);
+  
   // State for missed entry notification
   const [missedDates, setMissedDates] = useState<string[]>([]);
   const [showMissedDateReminder, setShowMissedDateReminder] = useState<boolean>(false);
   const [remindLaterDismissed, setRemindLaterDismissed] = useState<boolean>(false);
+  
   // State for expense suggestions
   const [expenseSuggestions, setExpenseSuggestions] = useState<string[]>([]);
+  
   // State for manual date entry
   const [manualEntryDate, setManualEntryDate] = useState<string>('');
   const [showManualDateEntry, setShowManualDateEntry] = useState<boolean>(false);
+  
   // New state variables for date modal and filtering
   const [showDateModal, setShowDateModal] = useState<boolean>(false);
   const [modalMessage, setModalMessage] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
   const [filteredDates, setFilteredDates] = useState<string[]>([]);
+  
+  // State for submission loading
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  
+  // State for today's data check
+  const [todayDataExists, setTodayDataExists] = useState<boolean>(false);
 
   // Fetch previous data and available dates when component mounts
   useEffect(() => {
@@ -73,6 +104,7 @@ export default function Home() {
     fetchAvailableDates();
     checkForMissedDates();
     fetchExpenseSuggestions();
+    checkTodayDataExists();
   }, []);
 
   // Calculate closing balance whenever relevant data changes
@@ -91,6 +123,25 @@ export default function Home() {
       setFilteredDates(availableDates.slice(0, 10)); // Show only recent 10 dates when no filter
     }
   }, [dateFilter, availableDates]);
+
+  // Check if today's data exists
+  const checkTodayDataExists = async () => {
+    if (isEditMode) return;
+    
+    const today = new Date().toISOString().split('T')[0];
+    
+    try {
+      const response = await fetch(`/api/date-exists?date=${today}`);
+      if (!response.ok) {
+        throw new Error('Failed to check date');
+      }
+      
+      const data = await response.json();
+      setTodayDataExists(data.exists);
+    } catch (error) {
+      console.error("Error checking today's data:", error);
+    }
+  };
 
   // Fetch previous day's data
   const fetchPreviousData = async () => {
@@ -163,7 +214,6 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        // Add cache control to prevent caching issues
         cache: 'no-store'
       });
       
@@ -172,23 +222,26 @@ export default function Home() {
       }
       
       const data = await response.json();
-      // Dates are already sorted by newest first in the API
       const dates = data.dates || [];
       setAvailableDates(dates);
-      // Initialize filteredDates with the 10 most recent dates
       setFilteredDates(dates.slice(0, 10));
     } catch (error) {
       console.error("Failed to fetch available dates:", error);
       setAvailableDates([]);
       setFilteredDates([]);
-      // Consider adding user notification of the error
-      // alert("Failed to load previous entries. Please refresh the page or try again later.");
     }
   };
 
   // Check if entry already exists for this date
-  const checkForExistingEntry = async () => {
+  const checkForExistingEntry = async (): Promise<boolean> => {
     const entryDate = showManualDateEntry ? manualEntryDate : new Date().toISOString().split('T')[0];
+    
+    // If we already know today's data exists (from page load check), show the modal immediately
+    if (!isEditMode && !showManualDateEntry && todayDataExists) {
+      setModalMessage(`Data already exists for today. Please use the Edit feature instead.`);
+      setShowDateModal(true);
+      return true;
+    }
     
     try {
       const response = await fetch(`/api/date-exists?date=${entryDate}`);
@@ -201,6 +254,12 @@ export default function Home() {
       if (data.exists && !isEditMode) {
         setModalMessage(`Data already exists for ${entryDate}. Please use the Edit feature instead.`);
         setShowDateModal(true);
+        
+        // If it's today's data, update the state
+        if (entryDate === new Date().toISOString().split('T')[0]) {
+          setTodayDataExists(true);
+        }
+        
         return true; // Entry exists
       }
       return false; // No entry exists
@@ -230,7 +289,7 @@ export default function Home() {
       
       // Set expenses
       if (data.expenses && data.expenses.length > 0) {
-        setExpenses(data.expenses.map((exp: any, index: number) => ({
+        setExpenses(data.expenses.map((exp: {description?: string, amount: number}, index: number) => ({
           description: exp.description || '',
           amount: exp.amount.toString() || '',
           id: (index + 1).toString()
@@ -257,20 +316,6 @@ export default function Home() {
     } catch (error) {
       console.error("Failed to fetch data for date:", error);
       alert("Failed to load data for the selected date.");
-    }
-  };
-
-  // Handle date selection change
-  const handleDateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedDate = e.target.value;
-    
-    if (selectedDate) {
-      fetchDataForDate(selectedDate);
-    } else {
-      resetForm();
-      setIsEditMode(false);
-      setSelectedDate('');
-      fetchPreviousData();
     }
   };
 
@@ -359,6 +404,11 @@ export default function Home() {
 
   // Submit data to Google Sheets
   const handleSubmit = async () => {
+    // Prevent double submission
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
+    
     try {
       // Check if entry already exists
       if (await checkForExistingEntry()) {
@@ -383,7 +433,7 @@ export default function Home() {
       const advanceSalaryAmount = parseFloat(advanceSalary.amount || '0');
       
       // Prepare data for submission
-      const submissionData = {
+      const submissionData: SubmissionData = {
         date: showManualDateEntry ? manualEntryDate : (isEditMode ? selectedDate : new Date().toISOString().split('T')[0]),        
         cash: salesData.cash,
         upi: salesData.upi,
@@ -398,7 +448,7 @@ export default function Home() {
         },
         openingBalance: isEditMode ? originalOpeningBalance : openingBalance,
         closingBalance,
-        isUpdate: isEditMode // Flag to indicate if this is an update operation
+        isUpdate: isEditMode
       };
   
       // Send data to API
@@ -409,12 +459,12 @@ export default function Home() {
         },
         body: JSON.stringify(submissionData),
       });
-  
+      
       if (!response.ok) {
         throw new Error('Failed to submit data');
       }
-  
-      const result = await response.json();
+      
+      await response.json();
       alert(isEditMode ? "Data updated successfully!" : "Data submitted successfully!");
       
       // Reset form fields after submission
@@ -423,10 +473,13 @@ export default function Home() {
       setSelectedDate('');
       setShowEditSection(false);
       fetchPreviousData();
-      fetchAvailableDates(); // Refresh available dates list
+      fetchAvailableDates();
+      checkTodayDataExists();
     } catch (error) {
       console.error("Failed to submit data:", error);
       alert("Failed to submit data. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -435,7 +488,7 @@ export default function Home() {
     setSalesData({ cash: '', upi: '', card: '' });
     setExpenses([{ description: '', amount: '', id: '1' }]);
     setAdvanceSalary({ employee: '', amount: '', remarks: '' });
-    setClosingBalance(0); // Reset closing balance to 0
+    setClosingBalance(0);
   };
 
   return (
@@ -459,17 +512,30 @@ export default function Home() {
               </span>
               <span className="absolute bottom-0 left-0 w-0 group-hover:w-full h-0.5 bg-gradient-to-r from-gray-400 to-gray-600 transition-all duration-300 ease-in-out"></span>
             </Link>
-            <Link href="/settings" className="relative group">
-              <span className="text-gray-700 hover:text-gray-900 font-medium transition-all duration-300 ease-in-out">
-                Settings
-              </span>
-              <span className="absolute bottom-0 left-0 w-0 group-hover:w-full h-0.5 bg-gradient-to-r from-gray-400 to-gray-600 transition-all duration-300 ease-in-out"></span>
-            </Link>
           </div>
         </div>
       </header>
   
       <main className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">    
+        {/* Today's Data Already Exists Notification */}
+        {todayDataExists && !isEditMode && !showManualDateEntry && (
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 transition-all duration-300">
+            <div className="flex items-center">
+              <div className="flex-shrink-0 text-blue-500">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+              <h3 className="text-base sm:text-lg font-medium text-blue-800">Today&apos;s data already submitted</h3>
+              <p className="mt-1 text-sm text-blue-600">
+                You&apos;ve already submitted data for today. If you need to make changes, please use the &quot;Edit Previous Entry&quot; option.
+              </p>
+              </div>
+            </div>
+          </div>
+        )}
+  
         {/* Edit Mode Selection - Only visible when toggled */}
         {showEditSection && (
           <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md mb-6 sm:mb-8 border-l-4 border-gray-800 transition-all duration-300">
@@ -801,11 +867,12 @@ export default function Home() {
         {/* Submit Button */}
         <div className="flex justify-center mb-6">
           <button 
-            onClick={handleSubmit}
-            className="bg-gradient-to-r from-gray-800 to-gray-700 hover:from-black hover:to-gray-800 text-white font-medium py-2 sm:py-3 px-6 sm:px-8 rounded-lg focus:outline-none focus:ring-4 focus:ring-gray-400 transition-all duration-200 shadow-md"
-          >
-            {isEditMode ? `Update Data for ${selectedDate}` : "Submit Data"}
-          </button>
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className={`bg-gradient-to-r from-gray-800 to-gray-700 hover:from-black hover:to-gray-800 text-white font-medium py-2 sm:py-3 px-6 sm:px-8 rounded-lg focus:outline-none focus:ring-4 focus:ring-gray-400 transition-all duration-200 shadow-md ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+        >
+          {isSubmitting ? 'Processing...' : (isEditMode ? `Update Data for ${selectedDate}` : "Submit Data")}
+        </button>
         </div>
       </main>
   

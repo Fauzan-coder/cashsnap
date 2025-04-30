@@ -72,7 +72,7 @@ interface AnalyticsState {
 }
 
 export default function Dashboard() {
-  const [dataCache, setDataCache] = useState<{[key: string]: any}>({});
+  const [dataCache, setDataCache] = useState<{[key: string]: Partial<AnalyticsState>}>({});
   const [selectedPeriod, setSelectedPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -89,11 +89,6 @@ export default function Dashboard() {
     employeeAdvances: [],
     dailySummary: []
   });
-
-  // Format date to YYYY-MM-DD
-  const formatDate = (date: Date): string => {
-    return date.toISOString().split('T')[0];
-  };
 
   // Parse date string to Date object
   const parseDate = (dateStr: string): Date => {
@@ -248,7 +243,14 @@ export default function Dashboard() {
 
     if (dataCache[cacheKey]) {
     console.log("Using cached data for", cacheKey);
-    setAnalytics({ loading: false, ...dataCache[cacheKey] });
+    setAnalytics({
+      loading: false,
+      salesData: dataCache[cacheKey]?.salesData || [],
+      paymentMethodDistribution: dataCache[cacheKey]?.paymentMethodDistribution || [],
+      expenseCategories: dataCache[cacheKey]?.expenseCategories || [],
+      employeeAdvances: dataCache[cacheKey]?.employeeAdvances || [],
+      dailySummary: dataCache[cacheKey]?.dailySummary || []
+    });
     return;
     }
     
