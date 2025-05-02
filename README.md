@@ -29,7 +29,7 @@ You can start editing the page by modifying app/page.tsx. The page auto-updates 
 
 This project uses next/font to automatically optimize and load Geist, a new font family for Vercel.
 
-Features
+##Features
 📈 Log daily sales with ease
 
 💸 Track expenses and categorize spending
@@ -38,7 +38,7 @@ Features
 
 🧾 Tailored for small to mid-sized retail shops
 
-Learn More
+##Learn More
 To learn more about Next.js, take a look at the following resources:
 
 Next.js Documentation - learn about Next.js features and API.
@@ -52,23 +52,16 @@ The easiest way to deploy your Next.js app is to use the Vercel Platform from th
 
 Check out our Next.js deployment documentation for more details.
 
-📄 License
+##📄 License
 This project is open source, but commercial or hosted use requires permission.
 
-📬 Contact: your-email@example.com
+##📬 Contact: your-email@example.com
 
-🤝 Contributing
+##🤝 Contributing
 Contributions are welcome! Please feel free to submit a pull request or open an issue to discuss improvements or suggestions.
 
-⭐️ Support
+##⭐️ Support
 If you find this project useful, please consider giving it a ⭐ on GitHub and sharing it with others in the retail community!
-
-vbnet
-Copy
-Edit
-
-Would you like help customizing the email/contact info or adding a license section (like MIT or custom)?
-
 
 
 
